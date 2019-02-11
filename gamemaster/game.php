@@ -417,9 +417,9 @@ class processGame extends Game
 		
 		/*
 		 * Make a note of NMRs. An NMR is where a member's orderStatus does not contain "Saved", but there are orders to
-		* be submitted and the user is playing. (Note this could be changed to require orderStatus is "Completed", if
-				* incomplete orders don't count as moves.)
-		*/
+		 * be submitted and the user is playing. (Note this could be changed to require orderStatus is "Completed", if
+		 * incomplete orders don't count as moves.) SET timeLastSessionEnded = ".time().",
+		 */
 		$DB->sql_put("INSERT INTO wD_NMRs (gameID, userID, countryID, turn, bet, SCCount)
 				SELECT m.gameID, m.userID, m.countryID, ".$this->turn." as turn, m.bet, m.supplyCenterNo
 				FROM wD_Members m
@@ -427,18 +427,70 @@ class processGame extends Game
 					AND ( m.status='Playing' OR m.status='Left' ) 
 					AND EXISTS(SELECT o.id FROM wD_Orders o WHERE o.gameID = m.gameID AND o.countryID = m.countryID)
 					AND NOT m.orderStatus LIKE '%Saved%' AND NOT m.orderStatus LIKE '%Ready%'");
+	
+
+		 // Insert a Missed Turn for anyone who missed the turn, accounting for systemExcused and samePeriodExcused
+		 $DB->sql_put("INSERT INTO wD_MissedTurns (gameID, userID, countryID, turn, bet, SCCount,forcedByMod,systemExcused,modExcused,turnDateTime,modExcusedReason,samePeriodExcused)
+				SELECT m.gameID, m.userID, m.countryID, ".$this->turn." as turn, m.bet, m.supplyCenterNo, 0, CASE WHEN excusedMissedTurns > 1 THEN 1 ELSE 0 END, 0,".time().",'', 
+				CASE WHEN (select count(1) from wD_MissedTurns where userID = m.userID and turnDateTime > ".time()." - (3600 *72)) > 0 THEN 1 ELSE 0 END 
+				FROM wD_Members m
+				WHERE m.gameID = ".$this->id." 
+					AND ( m.status='Playing' OR m.status='Left' ) 
+					AND EXISTS(SELECT o.id FROM wD_Orders o WHERE o.gameID = m.gameID AND o.countryID = m.countryID)
+					AND NOT m.orderStatus LIKE '%Saved%' AND NOT m.orderStatus LIKE '%Ready%'");
 		
-		/*
+		// Check how many people are missing orders for this turn. 	
+		 list($excusedNMRs) = $DB->sql_row("SELECT count(1) FROM wD_Members m WHERE m.gameID = ".$this->id." AND ( m.status='Playing' OR m.status='Left' ) 
+					AND EXISTS(SELECT o.id FROM wD_Orders o WHERE o.gameID = m.gameID AND o.countryID = m.countryID) AND NOT m.orderStatus LIKE '%Saved%' AND NOT m.orderStatus LIKE '%Ready%'");
+
+		// If anyone is going to miss the phase then extend the game. 		
+		if ($excusedNMRs > 0 )
+		{
+			$this->processTime = time() + $this->phaseMinutes*60;
+			$DB->sql_put("UPDATE wD_Games SET processTime = ".$this->processTime." WHERE id = ".$this->id);
+		}
+		
+		//TODO kick the person into CD however the fuck that works?
+		 
+		 // check the game for users who are going to NMR, check if the user has excuses left, if so then decriment else record nmr
+		 $DB->sql_put("UPDATE wD_Members m 
+						SET m.excusedMissedTurns = m.excusedMissedTurns - 1
+				WHERE m.gameID = ".$this->id." 
+					AND m.excusedMissedTurns > 0
+					AND ( m.status='Playing' OR m.status='Left' ) 
+					AND EXISTS(SELECT o.id FROM wD_Orders o WHERE o.gameID = m.gameID AND o.countryID = m.countryID)
+					AND NOT m.orderStatus LIKE '%Saved%' AND NOT m.orderStatus LIKE '%Ready%'");
+		 
+		 // if someone has an unexcused NMR then need to handle 
+		 // temp ban stuff
+		 
+		/* #REMOVE POST RR GO LIVE
 		 * Increment the moves received counter for users who could have submitted moves. This is a counter because it's a large number
 		 * users are unlikely to question, and calculating it from stored data is very involved.
-		*/
+		 */
 		$DB->sql_put("UPDATE wD_Users u
 				INNER JOIN wD_Members m ON m.userID = u.id
 				SET u.phaseCount = u.phaseCount + 1
 				WHERE m.gameID = ".$this->id." 
 					AND ( m.status='Playing' OR m.status='Left' )
 					AND EXISTS(SELECT o.id FROM wD_Orders o WHERE o.gameID = m.gameID AND o.countryID = m.countryID)");
-		}
+					
+		//Insert a record for each phase played in the phase table even if the phase is going to be extended to ensure correct NMR counts are kept. 
+		
+		// Update the total number of phases that each player in the game has played 
+		$DB->sql_put("UPDATE wD_Users u
+				INNER JOIN wD_Members m ON m.userID = u.id
+				inner join (
+					select userID, count(*) as yearlyTurns
+					from wD_TurnDate as t
+					where t.userID = m.userID and t.turnDateTime > ".time()." - (3600 *24*365) 
+				  ) as TotalTurns on m.userID = TotalTurns.userID
+				SET u.yearlyPhaseCount = TotalTurns.yearlyTurns
+				WHERE m.gameID = ".$this->id." 
+					AND ( m.status='Playing' OR m.status='Left' )
+					AND EXISTS(SELECT o.id FROM wD_Orders o WHERE o.gameID = m.gameID AND o.countryID = m.countryID)");
+	}		
+}
 	
 	/**
 	 * Process; the main gamemaster function for managing games; processes orders, adjudicates them,
