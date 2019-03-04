@@ -328,7 +328,7 @@ class processGame extends Game
 						missingPlayerPolicy = '".$missingPlayerPolicy."',
 						drawType='$drawType', 
 						minimumReliabilityRating=$rrLimit,
-						excusedMissedTurns = $missingPlayerPolicy");
+						excusedMissedTurns = $excusedMissedTurns");
 
 		$gameID = $DB->last_inserted();
 
@@ -482,11 +482,11 @@ class processGame extends Game
 		// Update the total number of phases that each player in the game has played 
 		$DB->sql_put("UPDATE wD_Users u
 				INNER JOIN wD_Members m ON m.userID = u.id
-				inner join (
-					select userID, count(*) as yearlyTurns
-					from wD_TurnDate as t
-					where t.userID = m.userID and t.turnDateTime > ".time()." - (3600 *24*365) 
-				  ) as TotalTurns on m.userID = TotalTurns.userID
+				INNER JOIN (
+					SELECT userID, count(*) as yearlyTurns
+					FROM wD_TurnDate as t
+					WHERE t.turnDateTime > ".time()." - (3600 *24*365) 
+				  ) as TotalTurns ON m.userID = TotalTurns.userID
 				SET u.yearlyPhaseCount = TotalTurns.yearlyTurns
 				WHERE m.gameID = ".$this->id." 
 					AND ( m.status='Playing' OR m.status='Left' )
