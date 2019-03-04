@@ -103,6 +103,11 @@ class Member
 	 * @var int
 	 */
 	var $missedPhases;
+	
+	/**
+	 * The number of already used up NMRs by this Member that got excused
+	 */
+	var $excusedMissedTurns;
 
 	/**
 	 * The number of units this member owns

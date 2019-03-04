@@ -191,6 +191,7 @@ class Members
 				m.votes AS votes,
 				m.supplyCenterNo as supplyCenterNo,
 				m.unitNo as unitNo,
+				m.excusedMissedTurns as excusedMissedTurns,
 				u.username AS username,
 				u.points AS points,
 				m.pointsWon as pointsWon,

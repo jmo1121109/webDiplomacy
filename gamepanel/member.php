@@ -442,7 +442,11 @@ class panelMember extends Member
 
 		if( $this->Game instanceof panelGameBoard
 			&& $this->status == 'Playing' && $this->Game->phase != 'Finished' )
-		{
+		{	
+			$buf .= ' - '.l_t('NMRs: %s of %s','<span class="excusedNMRs">'.$this->excusedMissedTurns.'</span>','<span class="excusedNMRs">'.$this->Game->excusedMissedTurns.'</span>');
+			if ( $this->missedPhases == 2 )
+				$buf .= ' - <span class="missedPhases">'.l_t('Missed the last phase').'</span>';
+			
 			if ( !$this->isLastSeenHidden() )
 				$buf .= '<br /><span class="memberLastSeen">
 						'.l_t('Last seen:').' <strong>'.$this->lastLoggedInTxt().'</strong>';
@@ -450,10 +454,8 @@ class panelMember extends Member
 			$voteList = $this->memberVotes();
 			if($voteList)
 				$buf .= '<br />'.$voteList;
-
-			if ( $this->missedPhases == 2 )
-				$buf .= '<br /><span class="missedPhases">'.l_t('Missed the last phase').'</span>';
-
+			
+			
 			$buf .= '</span>';
 		}
 
