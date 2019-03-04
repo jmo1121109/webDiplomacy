@@ -238,9 +238,9 @@ class panelGame extends Game
 
 		$buf .= $this->gameVariants();
 		
-		$buf .= '<div class="titleBarRightSide">	
-					<span class="excusedNMRs">'.$this->excusedMissedTurns.'</span> excused NMRs
-				</div>';
+		$buf .= '<div class="titleBarRightSide">'.	
+					l_t('%s excused NMRs','<span class="excusedNMRs">'.$this->excusedMissedTurns.'</span>').
+				'</div>';
 		
 		$buf .= '<div style="clear:both"></div>';
 
