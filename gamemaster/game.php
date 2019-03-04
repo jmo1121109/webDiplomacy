@@ -286,7 +286,7 @@ class processGame extends Game
 	 *
 	 * @return Game The object corresponding to the new game
 	 */
-	public static function create($variantID, $name, $password, $bet, $potType, $phaseMinutes, $joinPeriod, $anon, $press, $missingPlayerPolicy='Normal', $drawType, $rrLimit)
+	public static function create($variantID, $name, $password, $bet, $potType, $phaseMinutes, $joinPeriod, $anon, $press, $missingPlayerPolicy='Normal', $drawType, $rrLimit, $excusedMissedTurns)
 	{
 		global $DB;
 
@@ -326,7 +326,9 @@ class processGame extends Game
 						"processTime = ".$pTime.",
 						phaseMinutes = ".$phaseMinutes.",
 						missingPlayerPolicy = '".$missingPlayerPolicy."',
-						drawType='$drawType', minimumReliabilityRating=$rrLimit");
+						drawType='$drawType', 
+						minimumReliabilityRating=$rrLimit,
+						excusedMissedTurns = $missingPlayerPolicy");
 
 		$gameID = $DB->last_inserted();
 
@@ -490,7 +492,6 @@ class processGame extends Game
 					AND ( m.status='Playing' OR m.status='Left' )
 					AND EXISTS(SELECT o.id FROM wD_Orders o WHERE o.gameID = m.gameID AND o.countryID = m.countryID)");
 	}		
-}
 	
 	/**
 	 * Process; the main gamemaster function for managing games; processes orders, adjudicates them,
