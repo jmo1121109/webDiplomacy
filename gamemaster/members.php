@@ -129,7 +129,7 @@ class processMembers extends Members
 
 		return false;
 	}
-
+	
 	/**
 	 * Set players who have missed too many phases to be Left (which doesn't mean they get their
 	 * points, they can still rejoin.
@@ -575,6 +575,35 @@ class processMembers extends Members
 		libHTML::notice(l_t("Joined %s",$this->Game->name), $message);
 	}
 
+	
+	/**
+	 * Register a turn and updates the phase count for each active member (playing of left) with orders.
+	 */
+	function registerTurn() {
+		global $DB;
+		
+		// enter a turn for each active player with orders
+		$DB->sql_put("INSERT INTO wD_TurnDate (gameID, userID, countryID, turn, turnDateTime)
+				SELECT m.gameID,m.userID,m.countryID,".$this->Game->turn.",".time()."
+				FROM wD_Members m
+				WHERE m.gameID = ".$this->Game->id."
+					AND ( m.status='Playing' OR m.status='Left' ) 
+					AND EXISTS(SELECT o.id FROM wD_Orders o WHERE o.gameID = m.gameID AND o.countryID = m.countryID)");
+		
+		// update the turn count
+		$DB->sql_put("UPDATE wD_Users u
+				INNER JOIN wD_Members m ON m.userID = u.id
+				INNER JOIN (
+					SELECT userID, count(*) as yearlyTurns
+					FROM wD_TurnDate as t
+					WHERE t.userID = m.userID and t.turnDateTime > ".time()." - (3600 *24*365) 
+				  ) as TotalTurns on m.userID = TotalTurns.userID
+				SET u.yearlyPhaseCount = TotalTurns.yearlyTurns
+				WHERE m.gameID = ".$this->id." 
+					AND ( m.status='Playing' OR m.status='Left' )
+					AND EXISTS(SELECT o.id FROM wD_Orders o WHERE o.gameID = m.gameID AND o.countryID = m.countryID)");
+	}
+	
 	/**
 	 * Updates the reliability stats for the users in this game.
 	 */
