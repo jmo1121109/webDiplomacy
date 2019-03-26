@@ -453,10 +453,10 @@ class panelMember extends Member
 		{	
 			if(!$this->isMissedTurnsHidden()){
 				if($this->Game->excusedMissedTurns > 0)
-					$buf .= ' - '.l_t('NMRs: %s of %s','<span class="excusedNMRs">'.$this->excusedMissedTurns.'</span>','<span class="excusedNMRs">'.$this->Game->excusedMissedTurns.'</span>');
+					$buf .= ' - '.l_t('NMR excuses: %s of %s','<span class="excusedNMRs">'.$this->excusedMissedTurns.'</span>','<span class="excusedNMRs">'.$this->Game->excusedMissedTurns.'</span>');
 				
-				if ( $this->missedPhases == 2 )
-					$buf .= ' - <span class="missedPhases">'.l_t('Missed the last phase').'</span>';
+				if ( $this->missedPhases >= 1 )
+					$buf .= ' - <span class="missedPhases">'.l_t('Missed last deadline').'</span>';
 			}
 			
 			if ( !$this->isLastSeenHidden() )

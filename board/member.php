@@ -45,11 +45,10 @@ class userMember extends panelMember
 		{
 			$this->setBackFromLeft();
 		}
-		elseif( (time() - $this->timeLoggedIn) > 3*60  || $this->missedPhases>0 )
+		elseif( (time() - $this->timeLoggedIn) > 3*60 )
 		{
-			$DB->sql_put("UPDATE wD_Members SET missedPhases=0, timeLoggedIn = ".time()." WHERE id = ".$this->id);
+			$DB->sql_put("UPDATE wD_Members SET timeLoggedIn = ".time()." WHERE id = ".$this->id);
 			$this->timeLoggedIn=time();
-			$this->missedPhases=0;
 		}
 		else
 			$commit=false;
@@ -97,7 +96,7 @@ class userMember extends panelMember
 		$DB->sql_put(
 				"UPDATE wD_Members
 				SET status = 'Playing', ".( $this->orderStatus->updated ? "orderStatus='".$this->orderStatus."', " : '' )."
-					missedPhases=0, timeLoggedIn = ".time()."
+					timeLoggedIn = ".time()."
 				WHERE id = ".$this->id
 			);
 	}

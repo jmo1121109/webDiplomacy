@@ -412,6 +412,8 @@ class processGame extends Game
 
 	/**
 	 * Record NMRs by entering any NMRs into wD_MissedTurns.
+	 * 
+	 * @return array A list of member ids corresponding to members who missed the deadline
 	 */
 	private function recordNMRs()
 	{
@@ -430,16 +432,36 @@ class processGame extends Game
 					AND EXISTS(SELECT o.id FROM wD_Orders o WHERE o.gameID = m.gameID AND o.countryID = m.countryID)
 					AND NOT m.orderStatus LIKE '%Saved%' AND NOT m.orderStatus LIKE '%Ready%'");
 	
-
-		 // Insert a Missed Turn for anyone who missed the turn, accounting for systemExcused and samePeriodExcused
-		 $DB->sql_put("INSERT INTO wD_MissedTurns (gameID, userID, countryID, turn, bet, SCCount,forcedByMod,systemExcused,modExcused,turnDateTime,modExcusedReason,samePeriodExcused)
-				SELECT m.gameID, m.userID, m.countryID, ".$this->turn." as turn, m.bet, m.supplyCenterNo, 0, CASE WHEN excusedMissedTurns > 1 THEN 1 ELSE 0 END, 0,".time().",'', 
-				CASE WHEN (select count(1) from wD_MissedTurns where userID = m.userID and turnDateTime > ".time()." - (3600 *72)) > 0 THEN 1 ELSE 0 END 
-				FROM wD_Members m
+		
+		// detect which players NMR this turn
+		$tabl = $DB->sql_tabl("SELECT m.id 
+				FROM wD_Members m 
 				WHERE m.gameID = ".$this->id." 
 					AND ( m.status='Playing' OR m.status='Left' ) 
 					AND EXISTS(SELECT o.id FROM wD_Orders o WHERE o.gameID = m.gameID AND o.countryID = m.countryID)
 					AND NOT m.orderStatus LIKE '%Saved%' AND NOT m.orderStatus LIKE '%Ready%'");
+		
+		$nmrs = array();
+		while( list($id) = $DB->tabl_row($tabl) )
+			$nmrs[] = $id;
+
+		// Insert a Missed Turn for anyone who missed the turn, accounting for systemExcused and samePeriodExcused
+		$DB->sql_put("INSERT INTO wD_MissedTurns (gameID, userID, countryID, turn, bet, SCCount,forcedByMod,systemExcused,modExcused,turnDateTime,modExcusedReason,samePeriodExcused)
+				SELECT m.gameID, m.userID, m.countryID, ".$this->turn." as turn, m.bet, m.supplyCenterNo, 0, CASE WHEN excusedMissedTurns > 1 THEN 1 ELSE 0 END, 0,".time().",'', 
+				CASE WHEN (select count(1) from wD_MissedTurns where userID = m.userID and turnDateTime > ".time()." - (3600 *72)) > 0 THEN 1 ELSE 0 END 
+				FROM wD_Members m
+				WHERE m.id IN ( ".implode(',',$nmrs).")");
+		 
+		// Increase the nmr members' missedPhases count to record the missed deadlines in a row
+		$DB->sql_put("UPDATE wD_Members m
+				SET m.missedPhases = m.missedPhases + 1
+				WHERE m.id IN ( ".implode(',',$nmrs).")");
+		
+		// And reset missedPhases for all other members of that game
+		$DB->sql_put("UPDATE wD_Members m
+				SET m.missedPhases = 0
+				WHERE m.gameID = ".$this->id." 
+					AND m.id NOT IN ( ".implode(',',$nmrs).")");
 		
 		 
 		/* #REMOVE POST RR GO LIVE
@@ -452,24 +474,18 @@ class processGame extends Game
 				WHERE m.gameID = ".$this->id." 
 					AND ( m.status='Playing' OR m.status='Left' )
 					AND EXISTS(SELECT o.id FROM wD_Orders o WHERE o.gameID = m.gameID AND o.countryID = m.countryID)");
-					
+		
+		
+		return $nmrs;
 	}	
 	
 	/**
-	 * Check if the current phase has NMRs by playing players.
-	 */
-	protected function hasNMRs() {
-		// Check how many people are missing orders for this turn. Ignore Members who already left.
-		list($NMRs) = $DB->sql_row("SELECT count(1) FROM wD_Members m WHERE m.gameID = ".$this->id." AND m.status='Playing'  
-					AND EXISTS(SELECT o.id FROM wD_Orders o WHERE o.gameID = m.gameID AND o.countryID = m.countryID) AND NOT m.orderStatus LIKE '%Saved%' AND NOT m.orderStatus LIKE '%Ready%'");
-
-		return  $NMRs > 0;
-	}
-	
-	/**
 	 * Remove excused NMRs and put member into CD if all excuses are used up.
+	 * 
+	 * @param array $nmrs A list of member ids including the NMRs of the current turn
 	 */
-	protected function manageNMRs() {
+	protected function manageNMRs($nmrs) {
+		global $DB; 
 		
 		// first handle the members with no excuses left
 		
@@ -482,12 +498,9 @@ class processGame extends Game
 		
 		// adjust the excuse counter for members with excuses left
 		$DB->sql_put("UPDATE wD_Members m 
-						SET m.excusedMissedTurns = m.excusedMissedTurns - 1
-				WHERE m.gameID = ".$this->id." 
-					AND m.excusedMissedTurns > 0
-					AND ( m.status='Playing' OR m.status='Left' ) 
-					AND EXISTS(SELECT o.id FROM wD_Orders o WHERE o.gameID = m.gameID AND o.countryID = m.countryID)
-					AND NOT m.orderStatus LIKE '%Saved%' AND NOT m.orderStatus LIKE '%Ready%'");
+				SET m.excusedMissedTurns = m.excusedMissedTurns - 1
+				WHERE m.excusedMissedTurns > 0
+					AND m.id IN ( ".implode(',',$nmrs).")");
 		
 	}
 	
@@ -495,6 +508,8 @@ class processGame extends Game
 	 * Resets the phase timer to one phase time.
 	 */
 	protected function resetProcessTime() {
+		global $DB;
+		
 		$this->processTime = time() + $this->phaseMinutes*60;
 		$DB->sql_put("UPDATE wD_Games SET processTime = ".$this->processTime." WHERE id = ".$this->id);
 	}
@@ -541,11 +556,11 @@ class processGame extends Game
 		 */
 		$this->Members->registerTurn();		
 
-		$this->recordNMRs();		
+		$nmrs = $this->recordNMRs();		
 		
-		if($this->hasNMRs()){
+		if(count($nmrs) > 0){
 			
-			$this->manageNMRs();
+			$this->manageNMRs($nmrs);
 			$this->resetProcessTime();
 			
 		} else {		
@@ -641,16 +656,6 @@ class processGame extends Game
 						$PO->create();
 						break;
 				}
-
-				/*
-				 * The missed phase counter goes up for all players that need to log on in this phase,
-				 * (all players which have orders to enter) and they need to log on to bring it down.
-				 */
-				$DB->sql_put("UPDATE wD_Members m
-							LEFT JOIN wD_Orders o ON ( o.gameID = m.gameID AND o.countryID = m.countryID )
-							SET m.orderStatus=IF(o.id IS NULL, 'None',''),
-								missedPhases=IF(m.status='Playing' AND NOT o.id IS NULL, missedPhases + 1, missedPhases)
-							WHERE m.gameID = ".$this->id);
 				
 				$this->resetProcessTime();
 			}

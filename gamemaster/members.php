@@ -138,6 +138,8 @@ class processMembers extends Members
 	 */
 	function findSetLeft()
 	{
+		// TODO: Remove. The NMR handling is now changed to set left who has no excuses left
+		
 		$left=false;
 
 		// Eliminate players who've left
@@ -529,7 +531,7 @@ class processMembers extends Members
 
 			$DB->sql_put("UPDATE wD_Members
 					SET userID = ".$User->id.", status='Playing', orderStatus=REPLACE(orderStatus,'Ready',''),
-						missedPhases = 0, timeLoggedIn = ".time()."
+						timeLoggedIn = ".time().", excusedMissedTurns = ".$this->Game->excusedMissedTurns."
 					WHERE id = ".$CD->id);
 			$DB->sql_put('DELETE FROM wD_WatchedGames WHERE userID='.$User->id. ' AND gameID='.$this->Game->id);		
 
@@ -538,7 +540,6 @@ class processMembers extends Members
 
 			$CD->userID = $User->id;
 			$CD->status = 'Playing';
-			$CD->missedPhases = 0;
 			$CD->orderStatus->Ready=false;
 			$CD->points = $User->points;
 
@@ -595,11 +596,12 @@ class processMembers extends Members
 				INNER JOIN wD_Members m ON m.userID = u.id
 				INNER JOIN (
 					SELECT userID, count(*) as yearlyTurns
-					FROM wD_TurnDate as t
-					WHERE t.userID = m.userID and t.turnDateTime > ".time()." - (3600 *24*365) 
-				  ) as TotalTurns on m.userID = TotalTurns.userID
+					FROM wD_TurnDate AS t
+					WHERE t.turnDateTime > ".time()." - (3600 *24*365)
+					GROUP BY userID
+				  ) AS TotalTurns ON u.id = TotalTurns.userID
 				SET u.yearlyPhaseCount = TotalTurns.yearlyTurns
-				WHERE m.gameID = ".$this->id." 
+				WHERE m.gameID = ".$this->Game->id." 
 					AND ( m.status='Playing' OR m.status='Left' )
 					AND EXISTS(SELECT o.id FROM wD_Orders o WHERE o.gameID = m.gameID AND o.countryID = m.countryID)");
 	}
