@@ -48,6 +48,14 @@ class processMembers extends Members
 	{
 		$this->sendToPlaying('No',l_t("Game progressed to %s, %s",$this->Game->phase,$this->Game->datetxt($this->Game->turn)));
 	}
+	
+	/**
+	 * Send message about the game being extended due to NMRs from certain members.
+	 */
+	function notifyGameExtended()
+	{
+		$this->sendToPlaying('No', l_t("Game phase extended due to missing orders by at least one country."));
+	}
 
 	/**
 	 * Send message about the game being paused
@@ -128,33 +136,6 @@ class processMembers extends Members
 				return true;
 
 		return false;
-	}
-	
-	/**
-	 * Set players who have missed too many phases to be Left (which doesn't mean they get their
-	 * points, they can still rejoin.
-	 *
-	 * @return boolean True if one or more have just left, false if no-one has just left
-	 */
-	function findSetLeft()
-	{
-		// TODO: Remove. The NMR handling is now changed to set left who has no excuses left
-		
-		$left=false;
-
-		// Eliminate players who've left
-		foreach($this->ByStatus['Playing'] as $Member)
-		{
-			assert('$Member->missedPhases >= 0 and $Member->missedPhases <= 2');
-
-			if($Member->missedPhases == 2)
-			{
-				$left=true;
-				$Member->setLeft();
-			}
-		}
-
-		return $left;
 	}
 
 	/**
@@ -604,6 +585,51 @@ class processMembers extends Members
 				WHERE m.gameID = ".$this->Game->id." 
 					AND ( m.status='Playing' OR m.status='Left' )
 					AND EXISTS(SELECT o.id FROM wD_Orders o WHERE o.gameID = m.gameID AND o.countryID = m.countryID)");
+	}
+	
+	/**
+	 * Add a missed phase / turn to all members who are NMRing. Reset those of 
+	 * members who have not NMRed.
+	 * 
+	 * @param array $nmrs A list of member ids including the NMRs of the current turn
+	 */
+	function registerNMRs($nmrs) {
+		global $DB;
+	
+		foreach( $this->ByStatus['Playing'] as $Member ){
+			
+			if( in_array($Member->id, $nmrs) ){
+			
+				$Member->missedPhases++;
+				
+			} else {
+				
+				$Member->missedPhases = 0;
+			
+			}
+			
+			$DB->sql_put("UPDATE wD_Members m
+					SET m.missedPhases = ".$Member->missedPhases."
+					WHERE m.id = ".$Member->id);
+		}
+	}
+	
+	/**
+	 * Reduces the excuses of all members with NMRs and set members with no excuses
+	 * as left. 
+	 */
+	function handleNMRs() {
+		
+		foreach( $this->ByStatus['Playing'] as $Member ){
+			
+			if( $Member->missedPhases == 0 ) continue; // no NMR
+			
+			if( $Member->excusedMissedTurns > 0 ){
+				$Member->removeExcuse();
+			} else {
+				$Member->setLeft();
+			}
+		}
 	}
 	
 	/**

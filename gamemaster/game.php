@@ -439,29 +439,23 @@ class processGame extends Game
 				WHERE m.gameID = ".$this->id." 
 					AND ( m.status='Playing' OR m.status='Left' ) 
 					AND EXISTS(SELECT o.id FROM wD_Orders o WHERE o.gameID = m.gameID AND o.countryID = m.countryID)
-					AND NOT m.orderStatus LIKE '%Saved%' AND NOT m.orderStatus LIKE '%Ready%'");
+					AND NOT m.orderStatus LIKE '%Completed%'");
 		
 		$nmrs = array();
 		while( list($id) = $DB->tabl_row($tabl) )
 			$nmrs[] = $id;
 
-		// Insert a Missed Turn for anyone who missed the turn, accounting for systemExcused and samePeriodExcused
-		$DB->sql_put("INSERT INTO wD_MissedTurns (gameID, userID, countryID, turn, bet, SCCount,forcedByMod,systemExcused,modExcused,turnDateTime,modExcusedReason,samePeriodExcused)
-				SELECT m.gameID, m.userID, m.countryID, ".$this->turn." as turn, m.bet, m.supplyCenterNo, 0, CASE WHEN excusedMissedTurns > 1 THEN 1 ELSE 0 END, 0,".time().",'', 
-				CASE WHEN (select count(1) from wD_MissedTurns where userID = m.userID and turnDateTime > ".time()." - (3600 *72)) > 0 THEN 1 ELSE 0 END 
-				FROM wD_Members m
-				WHERE m.id IN ( ".implode(',',$nmrs).")");
+		if( count($nmrs) > 0 ){
+			// Insert a Missed Turn for anyone who missed the turn, accounting for systemExcused and samePeriodExcused
+			$DB->sql_put("INSERT INTO wD_MissedTurns (gameID, userID, countryID, turn, bet, SCCount,forcedByMod,systemExcused,modExcused,turnDateTime,modExcusedReason,samePeriodExcused)
+					SELECT m.gameID, m.userID, m.countryID, ".$this->turn." as turn, m.bet, m.supplyCenterNo, 0, CASE WHEN excusedMissedTurns > 1 THEN 1 ELSE 0 END, 0,".time().",'', 
+					CASE WHEN (select count(1) from wD_MissedTurns where userID = m.userID and turnDateTime > ".time()." - (3600 *72)) > 0 THEN 1 ELSE 0 END 
+					FROM wD_Members m
+					WHERE m.id IN ( ".implode(',',$nmrs).")");
+		}
 		 
-		// Increase the nmr members' missedPhases count to record the missed deadlines in a row
-		$DB->sql_put("UPDATE wD_Members m
-				SET m.missedPhases = m.missedPhases + 1
-				WHERE m.id IN ( ".implode(',',$nmrs).")");
-		
-		// And reset missedPhases for all other members of that game
-		$DB->sql_put("UPDATE wD_Members m
-				SET m.missedPhases = 0
-				WHERE m.gameID = ".$this->id." 
-					AND m.id NOT IN ( ".implode(',',$nmrs).")");
+		// register a missed turn for each member who NMRed
+		$this->Members->registerNMRs($nmrs);
 		
 		 
 		/* #REMOVE POST RR GO LIVE
@@ -478,31 +472,6 @@ class processGame extends Game
 		
 		return $nmrs;
 	}	
-	
-	/**
-	 * Remove excused NMRs and put member into CD if all excuses are used up.
-	 * 
-	 * @param array $nmrs A list of member ids including the NMRs of the current turn
-	 */
-	protected function manageNMRs($nmrs) {
-		global $DB; 
-		
-		// first handle the members with no excuses left
-		
-		//TODO kick the person into CD however the fuck that works? -> Member->setLeft()
-		 
-		 // if someone has an unexcused NMR then need to handle 
-		 // temp ban stuff
-	
-		
-		
-		// adjust the excuse counter for members with excuses left
-		$DB->sql_put("UPDATE wD_Members m 
-				SET m.excusedMissedTurns = m.excusedMissedTurns - 1
-				WHERE m.excusedMissedTurns > 0
-					AND m.id IN ( ".implode(',',$nmrs).")");
-		
-	}
 	
 	/**
 	 * Resets the phase timer to one phase time.
@@ -560,11 +529,24 @@ class processGame extends Game
 		
 		if(count($nmrs) > 0){
 			
-			$this->manageNMRs($nmrs);
-			$this->resetProcessTime();
+			/*
+			 * There are NMRs.
+			 * 
+			 * Handle the NMRs:
+			 * - Kick members into Civil Disorder who used up there excuses
+			 * - reduce the excuses of other NMRing members
+			 * 
+			 * Then unready orders, reset process time and notify members
+			 */
 			
-		} else {		
-
+			$this->Members->handleNMRs();
+			
+			
+			$this->Members->unreadyMembers();
+			$this->resetProcessTime();
+			$this->Members->notifyGameExtended();
+			
+		} else {
 			/*
 			 * Except for wiping redundant TerrStatus data after a new turn and generating new orders
 			 * this function is the only place which will interact with and manipulate the Orders,
@@ -656,6 +638,14 @@ class processGame extends Game
 						$PO->create();
 						break;
 				}
+				
+				/**
+				 * Update the orderStatus of each member.
+				 */
+				$DB->sql_put("UPDATE wD_Members m
+						LEFT JOIN wD_Orders o ON ( o.gameID = m.gameID AND o.countryID = m.countryID )
+						SET m.orderStatus=IF(o.id IS NULL, 'None','')
+						WHERE m.gameID = ".$this->id);
 				
 				$this->resetProcessTime();
 			}
@@ -968,7 +958,6 @@ class processGame extends Game
 		 * The findSet* functions affect the Members arrays and Member objects and records,
 		 * and will send messages, but they will not affect the rest of the game.
 		 */
-		$this->Members->findSetLeft(); // This will not give points to the left, since they may come back
 		$this->Members->findSetDefeated(); // This will give points to the defeated
 
 		/*

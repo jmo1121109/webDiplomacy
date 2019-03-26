@@ -464,6 +464,21 @@ class processMember extends Member
 
 		return $a;
 	}
+	
+	/**
+	 * Remove an excuse for a member and notify member about that.
+	 */
+	function removeExcuse() {
+		global $DB;
+		
+		$this->excusedMissedTurns--;
+		$DB->sql_put("UPDATE wD_Members m 
+				SET m.excusedMissedTurns = ".$this->excusedMissedTurns."
+				WHERE m.id = ".$this->id);
+		
+		$this->send('No','No',l_t("You have missed a deadline and lost an excuse (%s left)."
+				. "Be more reliable!",$this->excusedMissedTurns));
+	}
 }
 
 ?>
