@@ -286,7 +286,7 @@ class processGame extends Game
 	 *
 	 * @return Game The object corresponding to the new game
 	 */
-	public static function create($variantID, $name, $password, $bet, $potType, $phaseMinutes, $joinPeriod, $anon, $press, $missingPlayerPolicy='Normal', $drawType, $rrLimit)
+	public static function create($variantID, $name, $password, $bet, $potType, $phaseMinutes, $joinPeriod, $anon, $press, $missingPlayerPolicy='Normal', $drawType, $rrLimit, $excusedMissedTurns)
 	{
 		global $DB;
 
@@ -326,7 +326,9 @@ class processGame extends Game
 						"processTime = ".$pTime.",
 						phaseMinutes = ".$phaseMinutes.",
 						missingPlayerPolicy = '".$missingPlayerPolicy."',
-						drawType='$drawType', minimumReliabilityRating=$rrLimit");
+						drawType='$drawType', 
+						minimumReliabilityRating=$rrLimit,
+						excusedMissedTurns = $excusedMissedTurns");
 
 		$gameID = $DB->last_inserted();
 
@@ -409,7 +411,9 @@ class processGame extends Game
 	}
 
 	/**
-	 * Record NMRs by entering any NMRs into wD_NMRs, and also increment the phaseCount for all users in the game.
+	 * Record NMRs by entering any NMRs into wD_MissedTurns.
+	 * 
+	 * @return array A list of member ids corresponding to members who missed the deadline
 	 */
 	private function recordNMRs()
 	{
@@ -428,41 +432,31 @@ class processGame extends Game
 					AND EXISTS(SELECT o.id FROM wD_Orders o WHERE o.gameID = m.gameID AND o.countryID = m.countryID)
 					AND NOT m.orderStatus LIKE '%Saved%' AND NOT m.orderStatus LIKE '%Ready%'");
 	
-
-		 // Insert a Missed Turn for anyone who missed the turn, accounting for systemExcused and samePeriodExcused
-		 $DB->sql_put("INSERT INTO wD_MissedTurns (gameID, userID, countryID, turn, bet, SCCount,forcedByMod,systemExcused,modExcused,turnDateTime,modExcusedReason,samePeriodExcused)
-				SELECT m.gameID, m.userID, m.countryID, ".$this->turn." as turn, m.bet, m.supplyCenterNo, 0, CASE WHEN excusedMissedTurns > 1 THEN 1 ELSE 0 END, 0,".time().",'', 
-				CASE WHEN (select count(1) from wD_MissedTurns where userID = m.userID and turnDateTime > ".time()." - (3600 *72)) > 0 THEN 1 ELSE 0 END 
-				FROM wD_Members m
+		
+		// detect which players NMR this turn
+		$tabl = $DB->sql_tabl("SELECT m.id 
+				FROM wD_Members m 
 				WHERE m.gameID = ".$this->id." 
 					AND ( m.status='Playing' OR m.status='Left' ) 
 					AND EXISTS(SELECT o.id FROM wD_Orders o WHERE o.gameID = m.gameID AND o.countryID = m.countryID)
-					AND NOT m.orderStatus LIKE '%Saved%' AND NOT m.orderStatus LIKE '%Ready%'");
+					AND NOT m.orderStatus LIKE '%Completed%'");
 		
-		// Check how many people are missing orders for this turn. 	
-		 list($excusedNMRs) = $DB->sql_row("SELECT count(1) FROM wD_Members m WHERE m.gameID = ".$this->id." AND ( m.status='Playing' OR m.status='Left' ) 
-					AND EXISTS(SELECT o.id FROM wD_Orders o WHERE o.gameID = m.gameID AND o.countryID = m.countryID) AND NOT m.orderStatus LIKE '%Saved%' AND NOT m.orderStatus LIKE '%Ready%'");
+		$nmrs = array();
+		while( list($id) = $DB->tabl_row($tabl) )
+			$nmrs[] = $id;
 
-		// If anyone is going to miss the phase then extend the game. 		
-		if ($excusedNMRs > 0 )
-		{
-			$this->processTime = time() + $this->phaseMinutes*60;
-			$DB->sql_put("UPDATE wD_Games SET processTime = ".$this->processTime." WHERE id = ".$this->id);
+		if( count($nmrs) > 0 ){
+			// Insert a Missed Turn for anyone who missed the turn, accounting for systemExcused and samePeriodExcused
+			$DB->sql_put("INSERT INTO wD_MissedTurns (gameID, userID, countryID, turn, bet, SCCount,forcedByMod,systemExcused,modExcused,turnDateTime,modExcusedReason,samePeriodExcused)
+					SELECT m.gameID, m.userID, m.countryID, ".$this->turn." as turn, m.bet, m.supplyCenterNo, 0, CASE WHEN excusedMissedTurns > 1 THEN 1 ELSE 0 END, 0,".time().",'', 
+					CASE WHEN (select count(1) from wD_MissedTurns where userID = m.userID and turnDateTime > ".time()." - (3600 *72)) > 0 THEN 1 ELSE 0 END 
+					FROM wD_Members m
+					WHERE m.id IN ( ".implode(',',$nmrs).")");
 		}
+		 
+		// register a missed turn for each member who NMRed
+		$this->Members->registerNMRs($nmrs);
 		
-		//TODO kick the person into CD however the fuck that works?
-		 
-		 // check the game for users who are going to NMR, check if the user has excuses left, if so then decriment else record nmr
-		 $DB->sql_put("UPDATE wD_Members m 
-						SET m.excusedMissedTurns = m.excusedMissedTurns - 1
-				WHERE m.gameID = ".$this->id." 
-					AND m.excusedMissedTurns > 0
-					AND ( m.status='Playing' OR m.status='Left' ) 
-					AND EXISTS(SELECT o.id FROM wD_Orders o WHERE o.gameID = m.gameID AND o.countryID = m.countryID)
-					AND NOT m.orderStatus LIKE '%Saved%' AND NOT m.orderStatus LIKE '%Ready%'");
-		 
-		 // if someone has an unexcused NMR then need to handle 
-		 // temp ban stuff
 		 
 		/* #REMOVE POST RR GO LIVE
 		 * Increment the moves received counter for users who could have submitted moves. This is a counter because it's a large number
@@ -474,23 +468,20 @@ class processGame extends Game
 				WHERE m.gameID = ".$this->id." 
 					AND ( m.status='Playing' OR m.status='Left' )
 					AND EXISTS(SELECT o.id FROM wD_Orders o WHERE o.gameID = m.gameID AND o.countryID = m.countryID)");
-					
-		//Insert a record for each phase played in the phase table even if the phase is going to be extended to ensure correct NMR counts are kept. 
 		
-		// Update the total number of phases that each player in the game has played 
-		$DB->sql_put("UPDATE wD_Users u
-				INNER JOIN wD_Members m ON m.userID = u.id
-				inner join (
-					select userID, count(*) as yearlyTurns
-					from wD_TurnDate as t
-					where t.userID = m.userID and t.turnDateTime > ".time()." - (3600 *24*365) 
-				  ) as TotalTurns on m.userID = TotalTurns.userID
-				SET u.yearlyPhaseCount = TotalTurns.yearlyTurns
-				WHERE m.gameID = ".$this->id." 
-					AND ( m.status='Playing' OR m.status='Left' )
-					AND EXISTS(SELECT o.id FROM wD_Orders o WHERE o.gameID = m.gameID AND o.countryID = m.countryID)");
-	}		
-}
+		
+		return $nmrs;
+	}	
+	
+	/**
+	 * Resets the phase timer to one phase time.
+	 */
+	protected function resetProcessTime() {
+		global $DB;
+		
+		$this->processTime = time() + $this->phaseMinutes*60;
+		$DB->sql_put("UPDATE wD_Games SET processTime = ".$this->processTime." WHERE id = ".$this->id);
+	}
 	
 	/**
 	 * Process; the main gamemaster function for managing games; processes orders, adjudicates them,
@@ -516,7 +507,9 @@ class processGame extends Game
 		/*
 		 * Process the game. In a nutshell:
 		 *
-		 * - Make a note of any NMRs, increment phases played
+		 * - Register a turn process for each player (for RR)
+		 * - Make a note of any NMRs
+		 * - If NMRs, postpone processing and manage NMRs instead, else
 		 * - Adjudicate
 		 * 		- Save the current state of the game (Units,Orders,TerrStatus) to the archives if we have entered a new turn
 		 * 		- Wipe the game's orders
@@ -527,114 +520,137 @@ class processGame extends Game
 		 * - Set the next date for game processing
 		 */
 		
-		$this->recordNMRs();
-
 		/*
-		 * Except for wiping redundant TerrStatus data after a new turn and generating new orders
-		 * this function is the only place which will interact with and manipulate the Orders,
-		 * Moves, TerrStatus, Units and *Archive tables
-		 *
-		 * Also, except for pre-game adjudication, this function doesn't interact with Games or Members
+		 * Register the turn for each member with orders and update their phase count
 		 */
-		$this->adjudicate();
+		$this->Members->registerTurn();		
 
-		/*
-		 * The phase has been processed; Units and TerrStatus are fully updated, archives
-		 * have been taken now only Games and Members need to be updated, and new orders added
-		 */
-		$this->Members->countUnitsSCs();
-
-		if( $this->turn<1 )
-		{
-			Game::wipeCache($this->id);
-		}
-		elseif ( $this->phase == 'Retreats' or $this->phase == 'Builds' )
-		{
+		$nmrs = $this->recordNMRs();		
+		
+		if(count($nmrs) > 0){
+			
 			/*
-			 * If we have just processed either of these two phases then there will already be
-			 * a map drawn for our turn, which don't have the new moves drawn onto them.
-			 * The current turn's map is deleted
+			 * There are NMRs.
+			 * 
+			 * Handle the NMRs:
+			 * - Kick members into Civil Disorder who used up there excuses
+			 * - reduce the excuses of other NMRing members
+			 * 
+			 * Then unready orders, reset process time and notify members
 			 */
-			Game::wipeCache($this->id,$this->turn);
-		}
-
-		/*
-		 * Move to a new phase, and also a new turn if necessary. The turn changes when it's a
-		 * new Diplomacy phase that hasn't come from a Pre-game phase, or when it's a Finished
-		 * phase
-		 * This function will also check to see if the game is now finished. Once complete Game
-		 * and Members will be up-to-date with the next turn
-		 *
-		 * This is the function that calls the set* functions, indicating member/game
-		 * win/loss/draw etc, and giving points and messages accordingly.
-		 */
-		$newTurn = $this->changePhase();
-
-		if ( $newTurn )
-		{
+			
+			$this->Members->handleNMRs();
+			
+			
+			$this->Members->unreadyMembers();
+			$this->resetProcessTime();
+			$this->Members->notifyGameExtended();
+			
+		} else {
 			/*
-			 * We have entered a new turn; clean the TerrStatus records of the previous turn's
-			 * retreatingUnitID, occupiedFromTerrID, standoff data, which is no longer valid.
+			 * Except for wiping redundant TerrStatus data after a new turn and generating new orders
+			 * this function is the only place which will interact with and manipulate the Orders,
+			 * Moves, TerrStatus, Units and *Archive tables
+			 *
+			 * Also, except for pre-game adjudication, this function doesn't interact with Games or Members
 			 */
-
-			$this->cleanTerrStatus();
-		}
-
-		if ( $this->phase == 'Finished' )
-		{
-			/*
-			 * The game has finished, all that remains is to remove the TerrStatus
-			 * and Units data from the active tables
-			 */
-			$DB->sql_put("DELETE FROM wD_TerrStatus WHERE gameID = ".$this->id);
-			$DB->sql_put("DELETE FROM wD_Units WHERE gameID = ".$this->id);
-		}
-		else
-		{
-			// If the game hasn't finished let the active players know the game is in a new phase
-			if( $this->phase != 'Finished' )
-				$this->Members->notifyGameProgressed();
+			$this->adjudicate();
 
 			/*
-			 * The minimum-bet-to-join may have changed, based on supply-centers or people who have
-			 * newly Left or been Defeated, recalculate the minimum bet here.
+			 * The phase has been processed; Units and TerrStatus are fully updated, archives
+			 * have been taken now only Games and Members need to be updated, and new orders added
 			 */
-			$this->resetMinimumBet();
+			$this->Members->countUnitsSCs();
 
-			/*
-			 * We are moving on to the next phase; create new orders, and set players who
-			 * have new orders to no longer be ready
-			 */
-			switch($this->phase)
+			if( $this->turn<1 )
 			{
-				case 'Diplomacy':
-					$PO = $this->Variant->processOrderDiplomacy();
-					$PO->create();
-					break;
-				case 'Retreats':
-					$PO = $this->Variant->processOrderRetreats();
-					$PO->create();
-					break;
-				case 'Builds':
-					$PO = $this->Variant->processOrderBuilds();
-					$PO->create();
-					break;
+				Game::wipeCache($this->id);
+			}
+			elseif ( $this->phase == 'Retreats' or $this->phase == 'Builds' )
+			{
+				/*
+				 * If we have just processed either of these two phases then there will already be
+				 * a map drawn for our turn, which don't have the new moves drawn onto them.
+				 * The current turn's map is deleted
+				 */
+				Game::wipeCache($this->id,$this->turn);
 			}
 
 			/*
-			 * The missed phase counter goes up for all players that need to log on in this phase,
-			 * (all players which have orders to enter) and they need to log on to bring it down.
+			 * Move to a new phase, and also a new turn if necessary. The turn changes when it's a
+			 * new Diplomacy phase that hasn't come from a Pre-game phase, or when it's a Finished
+			 * phase
+			 * This function will also check to see if the game is now finished. Once complete Game
+			 * and Members will be up-to-date with the next turn
+			 *
+			 * This is the function that calls the set* functions, indicating member/game
+			 * win/loss/draw etc, and giving points and messages accordingly.
 			 */
-			$DB->sql_put("UPDATE wD_Members m
-						LEFT JOIN wD_Orders o ON ( o.gameID = m.gameID AND o.countryID = m.countryID )
-						SET m.orderStatus=IF(o.id IS NULL, 'None',''),
-							missedPhases=IF(m.status='Playing' AND NOT o.id IS NULL, missedPhases + 1, missedPhases)
-						WHERE m.gameID = ".$this->id);
-			
-			$this->processTime = time() + $this->phaseMinutes*60;
+			$newTurn = $this->changePhase();
 
-			$DB->sql_put("UPDATE wD_Games SET processTime = ".$this->processTime." WHERE id = ".$this->id);
-		}
+			if ( $newTurn )
+			{
+				/*
+				 * We have entered a new turn; clean the TerrStatus records of the previous turn's
+				 * retreatingUnitID, occupiedFromTerrID, standoff data, which is no longer valid.
+				 */
+
+				$this->cleanTerrStatus();
+			}
+
+			if ( $this->phase == 'Finished' )
+			{
+				/*
+				 * The game has finished, all that remains is to remove the TerrStatus
+				 * and Units data from the active tables
+				 */
+				$DB->sql_put("DELETE FROM wD_TerrStatus WHERE gameID = ".$this->id);
+				$DB->sql_put("DELETE FROM wD_Units WHERE gameID = ".$this->id);
+			}
+			else
+			{
+				// If the game hasn't finished let the active players know the game is in a new phase
+				if( $this->phase != 'Finished' )
+					$this->Members->notifyGameProgressed();
+
+				/*
+				 * The minimum-bet-to-join may have changed, based on supply-centers or people who have
+				 * newly Left or been Defeated, recalculate the minimum bet here.
+				 */
+				$this->resetMinimumBet();
+
+				/*
+				 * We are moving on to the next phase; create new orders, and set players who
+				 * have new orders to no longer be ready
+				 */
+				switch($this->phase)
+				{
+					case 'Diplomacy':
+						$PO = $this->Variant->processOrderDiplomacy();
+						$PO->create();
+						break;
+					case 'Retreats':
+						$PO = $this->Variant->processOrderRetreats();
+						$PO->create();
+						break;
+					case 'Builds':
+						$PO = $this->Variant->processOrderBuilds();
+						$PO->create();
+						break;
+				}
+				
+				/**
+				 * Update the orderStatus of each member.
+				 */
+				$DB->sql_put("UPDATE wD_Members m
+						LEFT JOIN wD_Orders o ON ( o.gameID = m.gameID AND o.countryID = m.countryID )
+						SET m.orderStatus=IF(o.id IS NULL, 'None','')
+						WHERE m.gameID = ".$this->id);
+				
+				$this->resetProcessTime();
+			}
+		}	
+
 		$this->Members->updateReliabilityStats();
 	}
 
@@ -942,7 +958,6 @@ class processGame extends Game
 		 * The findSet* functions affect the Members arrays and Member objects and records,
 		 * and will send messages, but they will not affect the rest of the game.
 		 */
-		$this->Members->findSetLeft(); // This will not give points to the left, since they may come back
 		$this->Members->findSetDefeated(); // This will give points to the defeated
 
 		/*

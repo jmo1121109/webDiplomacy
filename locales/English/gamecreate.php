@@ -274,6 +274,29 @@ else
 		<br /><br /><strong>Default:</strong> 0 (No restrictions)
 	</li>
 	   
+	<li class="formlisttitle">
+		NMR excuses:
+	</li>
+	<li class="formlistfield">
+		Number of excused missed turns per player: 
+		 <select id="NMR" name="newGame[excusedMissedTurns]">
+		<?php
+			for ($i=0; $i<=5; $i++) {
+				print '<option value="'.$i.'"'.($i==2 ? ' selected' : '').'>'.$i.(($i==0)?' (strict)':'').'</option>';
+			}
+		?>
+		</select>
+	</li>
+	<li class="formlistdesc">
+		The number of excused missed turns before a player goes into Civil Disorder and can be replaced. 
+		If a player is missing a deadline and there were no orders received, the phase will not progress but instead
+		one excuses of the player will be spent. If there are no excuses left for the player, they will go into Civil Disorder.
+		The game will only progress without receiving orders from the left position if no replacement is found within one phase 
+		length. So remember to not set this value to high if your game might be prone to many NMRs.
+		
+		<br /><br /><strong>Default:</strong> 2 excused NMRs 
+		
+	</li>
 <!-- 
 	<li class="formlisttitle">
 		No moves received options:

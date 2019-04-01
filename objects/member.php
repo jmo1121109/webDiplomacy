@@ -98,11 +98,16 @@ class Member
 	var $Game;
 
 	/**
-	 * The number of phases this Member has missed
+	 * The number of phases this Member has missed in a row
 	 *
 	 * @var int
 	 */
 	var $missedPhases;
+	
+	/**
+	 * The number of excused misses the member has left
+	 */
+	var $excusedMissedTurns;
 
 	/**
 	 * The number of units this member owns

@@ -228,6 +228,11 @@ class Game
 	public $minimumReliabilityRating;
 
 	public $civilDisorderInfo;
+	
+	/**
+	 * The number of allowed NMRs per player before they are set in Civil Disorder.
+	 */
+	public $excusedMissedTurns;
 
 	/**
 	 * @param int/array $gameData The game ID of the game to load, or the array of its database row
@@ -427,7 +432,8 @@ class Game
 			g.pressType,
 			g.missingPlayerPolicy,
 			g.drawType,
-			g.minimumReliabilityRating
+			g.minimumReliabilityRating,
+			g.excusedMissedTurns
 			FROM wD_Games g
 			WHERE g.id=".$this->id.' '.$this->lockMode);
 

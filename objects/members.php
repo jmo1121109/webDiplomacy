@@ -114,6 +114,30 @@ class Members
 
 		return true;
 	}
+	
+	/**
+	 * Remove the order status 'Ready' from all members participating
+	 */
+	function unreadyMembers() {
+		global $DB;
+		
+		foreach($this->ByStatus['Playing'] as $Member) {
+			
+			// do not adjust anything if there are no orders this phase
+			if( $Member->orderStatus->None ) continue;
+			
+			
+			$Member->orderStatus->Ready=false;
+			
+			
+			if( $Member->orderStatus->updated )
+				$DB->sql_put(
+					"UPDATE wD_Members
+					SET orderStatus='".$Member->orderStatus."'
+					WHERE id = ".$Member->id
+				);
+		}
+	}
 
 	/**
 	 * Checks global $User, sees if he's a member of this game
@@ -191,6 +215,7 @@ class Members
 				m.votes AS votes,
 				m.supplyCenterNo as supplyCenterNo,
 				m.unitNo as unitNo,
+				m.excusedMissedTurns as excusedMissedTurns,
 				u.username AS username,
 				u.points AS points,
 				m.pointsWon as pointsWon,

@@ -48,6 +48,14 @@ class processMembers extends Members
 	{
 		$this->sendToPlaying('No',l_t("Game progressed to %s, %s",$this->Game->phase,$this->Game->datetxt($this->Game->turn)));
 	}
+	
+	/**
+	 * Send message about the game being extended due to NMRs from certain members.
+	 */
+	function notifyGameExtended()
+	{
+		$this->sendToPlaying('No', l_t("Game phase extended due to missing orders by at least one country."));
+	}
 
 	/**
 	 * Send message about the game being paused
@@ -128,31 +136,6 @@ class processMembers extends Members
 				return true;
 
 		return false;
-	}
-
-	/**
-	 * Set players who have missed too many phases to be Left (which doesn't mean they get their
-	 * points, they can still rejoin.
-	 *
-	 * @return boolean True if one or more have just left, false if no-one has just left
-	 */
-	function findSetLeft()
-	{
-		$left=false;
-
-		// Eliminate players who've left
-		foreach($this->ByStatus['Playing'] as $Member)
-		{
-			assert('$Member->missedPhases >= 0 and $Member->missedPhases <= 2');
-
-			if($Member->missedPhases == 2)
-			{
-				$left=true;
-				$Member->setLeft();
-			}
-		}
-
-		return $left;
 	}
 
 	/**
@@ -529,7 +512,7 @@ class processMembers extends Members
 
 			$DB->sql_put("UPDATE wD_Members
 					SET userID = ".$User->id.", status='Playing', orderStatus=REPLACE(orderStatus,'Ready',''),
-						missedPhases = 0, timeLoggedIn = ".time()."
+						timeLoggedIn = ".time().", excusedMissedTurns = ".$this->Game->excusedMissedTurns."
 					WHERE id = ".$CD->id);
 			$DB->sql_put('DELETE FROM wD_WatchedGames WHERE userID='.$User->id. ' AND gameID='.$this->Game->id);		
 
@@ -538,7 +521,6 @@ class processMembers extends Members
 
 			$CD->userID = $User->id;
 			$CD->status = 'Playing';
-			$CD->missedPhases = 0;
 			$CD->orderStatus->Ready=false;
 			$CD->points = $User->points;
 
@@ -575,6 +557,81 @@ class processMembers extends Members
 		libHTML::notice(l_t("Joined %s",$this->Game->name), $message);
 	}
 
+	
+	/**
+	 * Register a turn and updates the phase count for each active member (playing of left) with orders.
+	 */
+	function registerTurn() {
+		global $DB;
+		
+		// enter a turn for each active player with orders
+		$DB->sql_put("INSERT INTO wD_TurnDate (gameID, userID, countryID, turn, turnDateTime)
+				SELECT m.gameID,m.userID,m.countryID,".$this->Game->turn.",".time()."
+				FROM wD_Members m
+				WHERE m.gameID = ".$this->Game->id."
+					AND ( m.status='Playing' OR m.status='Left' ) 
+					AND EXISTS(SELECT o.id FROM wD_Orders o WHERE o.gameID = m.gameID AND o.countryID = m.countryID)");
+		
+		// update the turn count
+		$DB->sql_put("UPDATE wD_Users u
+				INNER JOIN wD_Members m ON m.userID = u.id
+				INNER JOIN (
+					SELECT userID, count(*) as yearlyTurns
+					FROM wD_TurnDate AS t
+					WHERE t.turnDateTime > ".time()." - (3600 *24*365)
+					GROUP BY userID
+				  ) AS TotalTurns ON u.id = TotalTurns.userID
+				SET u.yearlyPhaseCount = TotalTurns.yearlyTurns
+				WHERE m.gameID = ".$this->Game->id." 
+					AND ( m.status='Playing' OR m.status='Left' )
+					AND EXISTS(SELECT o.id FROM wD_Orders o WHERE o.gameID = m.gameID AND o.countryID = m.countryID)");
+	}
+	
+	/**
+	 * Add a missed phase / turn to all members who are NMRing. Reset those of 
+	 * members who have not NMRed.
+	 * 
+	 * @param array $nmrs A list of member ids including the NMRs of the current turn
+	 */
+	function registerNMRs($nmrs) {
+		global $DB;
+	
+		foreach( $this->ByStatus['Playing'] as $Member ){
+			
+			if( in_array($Member->id, $nmrs) ){
+			
+				$Member->missedPhases++;
+				
+			} else {
+				
+				$Member->missedPhases = 0;
+			
+			}
+			
+			$DB->sql_put("UPDATE wD_Members m
+					SET m.missedPhases = ".$Member->missedPhases."
+					WHERE m.id = ".$Member->id);
+		}
+	}
+	
+	/**
+	 * Reduces the excuses of all members with NMRs and set members with no excuses
+	 * as left. 
+	 */
+	function handleNMRs() {
+		
+		foreach( $this->ByStatus['Playing'] as $Member ){
+			
+			if( $Member->missedPhases == 0 ) continue; // no NMR
+			
+			if( $Member->excusedMissedTurns > 0 ){
+				$Member->removeExcuse();
+			} else {
+				$Member->setLeft();
+			}
+		}
+	}
+	
 	/**
 	 * Updates the reliability stats for the users in this game.
 	 */

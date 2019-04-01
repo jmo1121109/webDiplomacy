@@ -198,6 +198,14 @@ class panelMember extends Member
 
 		return $this->isLastSeenHidden;
 	}
+	
+	private $isMissedTurnsHidden;
+	function isMissedTurnsHidden()
+	{
+		$this->isMissedTurnsHidden = $this->isNameHidden();
+		
+		return $this->isMissedTurnsHidden;
+	}
 	/**
 	 * The name of the user playing as this member, his points, and whether he's logged on
 	 * @return string
@@ -442,7 +450,15 @@ class panelMember extends Member
 
 		if( $this->Game instanceof panelGameBoard
 			&& $this->status == 'Playing' && $this->Game->phase != 'Finished' )
-		{
+		{	
+			if(!$this->isMissedTurnsHidden()){
+				if($this->Game->excusedMissedTurns > 0)
+					$buf .= ' - '.l_t('NMR excuses: %s of %s','<span class="excusedNMRs">'.$this->excusedMissedTurns.'</span>','<span class="excusedNMRs">'.$this->Game->excusedMissedTurns.'</span>');
+				
+				if ( $this->missedPhases >= 1 )
+					$buf .= ' - <span class="missedPhases">'.l_t('Missed last deadline').'</span>';
+			}
+			
 			if ( !$this->isLastSeenHidden() )
 				$buf .= '<br /><span class="memberLastSeen">
 						'.l_t('Last seen:').' <strong>'.$this->lastLoggedInTxt().'</strong>';
@@ -450,10 +466,8 @@ class panelMember extends Member
 			$voteList = $this->memberVotes();
 			if($voteList)
 				$buf .= '<br />'.$voteList;
-
-			if ( $this->missedPhases == 2 )
-				$buf .= '<br /><span class="missedPhases">'.l_t('Missed the last phase').'</span>';
-
+			
+			
 			$buf .= '</span>';
 		}
 

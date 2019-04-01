@@ -16,11 +16,11 @@ CREATE TABLE IF NOT EXISTS `wD_MissedTurns` (
 	  KEY `missedPerUserPerDate` (`userID`,`turnDateTime`)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 	
-ALTER TABLE `wD_Members` ADD `excusedMissedTurns` int(10) unsigned;
-ALTER TABLE `wD_Games` ADD `excusedMissedTurns` int(10) unsigned;
-ALTER TABLE `wD_Users` ADD `yearlyMissedTurnCount` mediumint(8) unsigned;
-ALTER TABLE `wD_Users` ADD `shortTermMissedTurnCount` mediumint(8) unsigned;
-ALTER TABLE `wD_Users` ADD `yearlyPhaseCount` mediumint(8) unsigned;     
+ALTER TABLE `wD_Members` ADD `excusedMissedTurns` int(10) unsigned DEFAULT 2;
+ALTER TABLE `wD_Games` ADD `excusedMissedTurns` int(10) unsigned DEFAULT 2;
+ALTER TABLE `wD_Users` ADD `yearlyMissedTurnCount` mediumint(8) unsigned DEFAULT 0;
+ALTER TABLE `wD_Users` ADD `shortTermMissedTurnCount` mediumint(8) unsigned DEFAULT 0;
+ALTER TABLE `wD_Users` ADD `yearlyPhaseCount` mediumint(8) unsigned DEFAULT 0;     
 
 CREATE TABLE IF NOT EXISTS `wD_TurnDate` (
 	  `id` mediumint(10) unsigned NOT NULL AUTO_INCREMENT PRIMARY KEY,

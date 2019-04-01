@@ -136,7 +136,7 @@
 	font-style:italic;
 	font-weight:normal;
 }
-.gamePot {
+.gamePot, .excusedNMRs{
 	font-weight:bold;
 }
 .gamePotType {

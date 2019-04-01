@@ -212,7 +212,7 @@ class panelGame extends Game
 					'.$this->gameHoursPerPhase().'
 				</span>
 			</div>';
-
+			
 		$date=' - <span class="gameDate">'.$this->datetxt().'</span>, <span class="gamePhase">'.l_t($this->phase).'</span>';
 
 		$leftTop = '<div class="titleBarLeftSide">
@@ -237,6 +237,12 @@ class panelGame extends Game
 			';
 
 		$buf .= $this->gameVariants();
+		
+		$buf .= '<div class="titleBarRightSide">'.	
+					l_t('%s excused NMRs','<span class="excusedNMRs">'.$this->excusedMissedTurns.'</span>').
+				'</div>';
+		
+		$buf .= '<div style="clear:both"></div>';
 
 		return $buf;
 	}
@@ -263,7 +269,6 @@ class panelGame extends Game
 			return '<div class="titleBarLeftSide">
 				<span class="gamePotType">'.implode(', ',$alternatives).'</span>
 				</div>
-			<div style="clear:both"></div>
 			';
 		else
 			return '';
