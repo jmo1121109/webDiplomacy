@@ -418,21 +418,7 @@ class processGame extends Game
 	private function recordNMRs()
 	{
 		global $DB;
-		
-		/*
-		 * Make a note of NMRs. An NMR is where a member's orderStatus does not contain "Saved", but there are orders to
-		 * be submitted and the user is playing. (Note this could be changed to require orderStatus is "Completed", if
-		 * incomplete orders don't count as moves.) SET timeLastSessionEnded = ".time().",
-		 */
-		$DB->sql_put("INSERT INTO wD_NMRs (gameID, userID, countryID, turn, bet, SCCount)
-				SELECT m.gameID, m.userID, m.countryID, ".$this->turn." as turn, m.bet, m.supplyCenterNo
-				FROM wD_Members m
-				WHERE m.gameID = ".$this->id." 
-					AND ( m.status='Playing' OR m.status='Left' ) 
-					AND EXISTS(SELECT o.id FROM wD_Orders o WHERE o.gameID = m.gameID AND o.countryID = m.countryID)
-					AND NOT m.orderStatus LIKE '%Saved%' AND NOT m.orderStatus LIKE '%Ready%'");
 	
-		
 		// detect which players NMR this turn
 		$tabl = $DB->sql_tabl("SELECT m.id 
 				FROM wD_Members m 
@@ -449,26 +435,51 @@ class processGame extends Game
 			// Insert a Missed Turn for anyone who missed the turn, accounting for systemExcused and samePeriodExcused
 			$DB->sql_put("INSERT INTO wD_MissedTurns (gameID, userID, countryID, turn, bet, SCCount,forcedByMod,systemExcused,modExcused,turnDateTime,modExcusedReason,samePeriodExcused)
 					SELECT m.gameID, m.userID, m.countryID, ".$this->turn." as turn, m.bet, m.supplyCenterNo, 0, CASE WHEN excusedMissedTurns > 1 THEN 1 ELSE 0 END, 0,".time().",'', 
-					CASE WHEN (select count(1) from wD_MissedTurns where userID = m.userID and turnDateTime > ".time()." - (3600 *72)) > 0 THEN 1 ELSE 0 END 
+					CASE WHEN (
+						SELECT COUNT(1) 
+						FROM wD_MissedTurns 
+						WHERE userID = m.userID 
+							AND turnDateTime > ".time()." - (3600 *72)
+							AND systemExcused = 0 
+							AND modExcused = 0 
+							AND samePeriodExcused = 0
+					) > 0 THEN 1 ELSE 0 END 
 					FROM wD_Members m
 					WHERE m.id IN ( ".implode(',',$nmrs).")");
+			
+			// Not used yet, not clear which criteria should be applied for this counts
+			/*
+			 * Update the yearlyMissedTurnCount and the shortTermMissedTurnCount 
+			 * for each member that NMRed.
+			 * 
+			 * yearlyMissedTurnCount: Unexcused misses during the last year
+			 * shortTermMissedTurnCount: Unexcused misses during the last 2 weeks
+			 */
+			/*$DB->sql_put("UPDATE wD_Users u
+				INNER JOIN wD_Members m ON m.userID = u.id
+				SET u.yearlyMissedTurnCount = (
+						SELECT COUNT(1)
+						FROM wD_MissedTurns
+						WHERE userID = m.userID
+							AND turnDateTime > ".time()." - (3600 * 24 * 365)
+							AND systemExcused = 0 
+							AND modExcused = 0 
+							AND samePeriodExcused = 0
+					),
+					u.shortTermMissedTurnCount = (
+						SELECT COUNT(1)
+						FROM wD_MissedTurns
+						WHERE userID = m.userID
+							AND turnDateTime > ".time()." - (3600 * 24 * 14)
+							AND systemExcused = 0 
+							AND modExcused = 0 
+							AND samePeriodExcused = 0
+					)
+				WHERE m.id IN ( ".implode(',',$nmrs).")");*/
 		}
 		 
 		// register a missed turn for each member who NMRed
 		$this->Members->registerNMRs($nmrs);
-		
-		 
-		/* #REMOVE POST RR GO LIVE
-		 * Increment the moves received counter for users who could have submitted moves. This is a counter because it's a large number
-		 * users are unlikely to question, and calculating it from stored data is very involved.
-		 */
-		$DB->sql_put("UPDATE wD_Users u
-				INNER JOIN wD_Members m ON m.userID = u.id
-				SET u.phaseCount = u.phaseCount + 1
-				WHERE m.gameID = ".$this->id." 
-					AND ( m.status='Playing' OR m.status='Left' )
-					AND EXISTS(SELECT o.id FROM wD_Orders o WHERE o.gameID = m.gameID AND o.countryID = m.countryID)");
-		
 		
 		return $nmrs;
 	}	
@@ -507,9 +518,13 @@ class processGame extends Game
 		/*
 		 * Process the game. In a nutshell:
 		 *
+		 * Handling of NMRs:
 		 * - Register a turn process for each player (for RR)
-		 * - Make a note of any NMRs
-		 * - If NMRs, postpone processing and manage NMRs instead, else
+		 * - Make a note of any NMRs 
+		 * - Handle NMRs
+		 * 
+		 * Actual Processing:
+		 * - If NMRs by active members, postpone processing, else
 		 * - Adjudicate
 		 * 		- Save the current state of the game (Units,Orders,TerrStatus) to the archives if we have entered a new turn
 		 * 		- Wipe the game's orders
@@ -518,29 +533,32 @@ class processGame extends Game
 		 * - Wipe old TerrStatus information if entering a new turn
 		 * - Create new orders for the current phase
 		 * - Set the next date for game processing
-		 */
+		 */		
 		
 		/*
 		 * Register the turn for each member with orders and update their phase count
 		 */
 		$this->Members->registerTurn();		
-
-		$nmrs = $this->recordNMRs();		
 		
-		if(count($nmrs) > 0){
+		/*
+		 * Register NMRs for this turn process. 
+		 */
+		$this->recordNMRs();
+		
+		/*
+		 * Handle the NMRs. This method does record 
+		 */
+		$this->Members->handleNMRs();
+			
+		
+		if( $this->Members->withActiveNMRs() ){
 			
 			/*
-			 * There are NMRs.
+			 * There are NMRs by active members. The game will not be processed, but instead
+			 * the phase will be extended.
 			 * 
-			 * Handle the NMRs:
-			 * - Kick members into Civil Disorder who used up there excuses
-			 * - reduce the excuses of other NMRing members
-			 * 
-			 * Then unready orders, reset process time and notify members
+			 * All orders are unreadied, the phase time is reset and members are notified.
 			 */
-			
-			$this->Members->handleNMRs();
-			
 			
 			$this->Members->unreadyMembers();
 			$this->resetProcessTime();
@@ -649,8 +667,8 @@ class processGame extends Game
 				
 				$this->resetProcessTime();
 			}
-		}	
-
+		}
+		
 		$this->Members->updateReliabilityStats();
 	}
 
