@@ -1143,7 +1143,9 @@ class adminActions extends adminActionsForms
 		
 		$userID = (int)$params['userID'];
 		$days   = (int)$params['ban'];
- 		$DB->sql_put("UPDATE wD_Users SET tempBan = ". ( time() + ($days * 86400) )." WHERE id=".$userID);
+ 		
+		User::tempBanUser($userID, $days);
+		
  		if ($days == 0)
 			return 'This user is now unblocked and can join and create games again.';
 			
