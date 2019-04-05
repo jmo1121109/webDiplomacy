@@ -476,7 +476,7 @@ class processMember extends Member
 				SET m.excusedMissedTurns = ".$this->excusedMissedTurns."
 				WHERE m.id = ".$this->id);
 		
-		$this->send('No','No',l_t("You have missed a deadline and lost an excuse (%s left)."
+		$this->send('No','No',l_t("You have missed a deadline and lost an excuse (%s left). "
 				. "Be more reliable!",$this->excusedMissedTurns));
 	}
 }
