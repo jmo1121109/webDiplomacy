@@ -20,7 +20,7 @@ try {
     libVariant::setGlobals($Variant);
     $Game = $Variant->panelGameBoard($gameID);
 
-    if ($Game->Members->isJoined()) {
+    if ($Game->Members->isJoined() && !$Game->Members->isTempBanned()) {
         // We are a member, load the extra code that we might need
         require_once(l_r('gamemaster/gamemaster.php'));
         require_once(l_r('board/member.php'));

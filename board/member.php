@@ -64,7 +64,10 @@ class userMember extends panelMember
 	 */
 	protected function setBackFromLeft()
 	{
-		global $DB,$Game;
+		global $DB,$Game,$User;
+		
+		if ( $this->Game->Members->isTempBanned() )
+			throw new Exception("You are blocked from rejoining your games.");
 
 		unset($this->Game->Members->ByStatus[$this->status][$this->id]);
 		$this->status = 'Playing';

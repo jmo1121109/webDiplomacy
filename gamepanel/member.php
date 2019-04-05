@@ -34,7 +34,7 @@ class panelMember extends Member
 	function memberSentMessages()
 	{
 		global $User;
-		if($this->Game->Members->isJoined())
+		if($this->Game->Members->isJoined() && !$this->Game->Members->isTempBanned())
 			if(in_array($this->countryID,$this->Game->Members->ByUserID[$User->id]->newMessagesFrom))
 				return libHTML::unreadMessages('board.php?gameID='.$this->gameID.'&msgCountryID='.$this->countryID.'#chatbox');
 	}
@@ -50,7 +50,11 @@ class panelMember extends Member
 		
 		global $checkMissingOrders;
 		
-		if ( $this->Game->phase != 'Pre-game' && $this->Game->phase != 'Finished')
+		if( $this->Game->Members->isTempBanned() )
+		{
+			$buf .= '<div class="panelTempBanned"><b>You are blocked from rejoining this game.</b></div>';
+		}
+		elseif ( $this->Game->phase != 'Pre-game' && $this->Game->phase != 'Finished')
 		{
 			global $DB;
 			
@@ -92,12 +96,13 @@ class panelMember extends Member
 			<td class="memberRightSide '.
 				($this->status=='Left'||$this->status=='Resigned'||$this->status=='Defeated'?'memberStatusFade':'').
 				'">
-				<div>
-				<div class="memberUserDetail">
+				<div>'.
+				( $this->Game->Members->isTempBanned() ? '':
+				'<div class="memberUserDetail">
 					'.$this->memberFinalizedFull().'<br />
 					'.$this->memberMessagesFull().'
-				</div>
-				<div class="memberGameDetail">
+				</div>').
+				'<div class="memberGameDetail">
 					'.$this->memberGameDetail().'
 				</div>
 				<div style="clear:both"></div>
