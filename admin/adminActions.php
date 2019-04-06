@@ -75,7 +75,7 @@ class adminActions extends adminActionsForms
 			),
 			'tempBan' => array(
 				'name' => 'Temporary ban a player',
-				'description' => 'Stops a player from joining or creating new games for that many days. To remove a temp ban, enter 0 days',
+				'description' => 'Stops a player from (re)joining or creating new games for that many days. To remove a temp ban, enter 0 days',
 				'params' => array('userID'=>'User ID', 'ban'=>'Days')
 			),
 			'banUser' => array(
@@ -1143,11 +1143,13 @@ class adminActions extends adminActionsForms
 		
 		$userID = (int)$params['userID'];
 		$days   = (int)$params['ban'];
- 		$DB->sql_put("UPDATE wD_Users SET tempBan = ". ( time() + ($days * 86400) )." WHERE id=".$userID);
+ 		
+		User::tempBanUser($userID, $days);
+		
  		if ($days == 0)
-			return 'This user is now unblocked and can join and create games again.';
+			return 'This user is now unblocked and can (re)join and create games again.';
 			
-		return 'This user is now blocked from joining and creating games for <b>'.$days.'</b> days.';
+		return 'This user is now blocked from (re)joining and creating games for <b>'.$days.'</b> days.';
 	}
 	public function givePoints(array $params)
 	{

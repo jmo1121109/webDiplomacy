@@ -470,7 +470,7 @@ class libHTML
 		if (isset($User) && $User->tempBan > time())
 		{
 			print '<div class="content-notice">
-					<p class="notice"><br>'.l_t('You are blocked from joining or creating new games for %s.',libTime::remainingText($User->tempBan)).'<br><br><hr></p>
+					<p class="notice"><br>'.l_t('You are blocked from (re)joining or creating new games for %s.',libTime::remainingText($User->tempBan)).'<br><br><hr></p>
 				</div>';			
 		}
 
@@ -541,7 +541,9 @@ class libHTML
 			FROM wD_Members m
 			INNER JOIN wD_Games g ON ( m.gameID = g.id )
 			WHERE m.userID = ".$User->id."
-				AND ( ( NOT m.orderStatus LIKE '%Ready%' AND NOT m.orderStatus LIKE '%None%' AND g.phase != 'Finished' ) OR NOT ( (m.newMessagesFrom+0) = 0 ) ) ORDER BY  g.processStatus ASC, g.processTime ASC");
+				AND ( ( NOT m.orderStatus LIKE '%Ready%' AND NOT m.orderStatus LIKE '%None%' AND g.phase != 'Finished' ) OR NOT ( (m.newMessagesFrom+0) = 0 ) ) ".
+				( ($User->tempBan > time()) ? "AND m.status != 'Left'" : "" ) // ingore left games of temp banned user who are banned from rejoining
+				." ORDER BY  g.processStatus ASC, g.processTime ASC");
 
 		$gameIDs = array();
 		$notifyGames = array();

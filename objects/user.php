@@ -740,6 +740,32 @@ class User {
 		if($ip)
 			self::banIP($ip, $userID);
 	}
+	
+	/**
+	 * Temporary prevent a user from joining games.
+	 * 
+	 * @param int $userID The id of the user to be temp banned.
+	 * @param int $days The time of the ban in days.
+	 * @param boolean $overwrite True, if the temp ban value should be overwritten
+	 *		in any case. If false, an existing temp ban might be only extended (for
+	 *		automated temp bans).
+	 */
+	public static function tempBanUser($userID, $days, $overwrite = true){
+		global $DB;
+		
+		/*
+		 * If the temp ban value should only be extended (no overwrite), check
+		 * if the given time span would extend the ban. If not, do nothing.
+		 */
+		if(!$overwrite){
+			
+			list($tempBan) = $DB->sql_row("SELECT tempBan FROM wD_Users WHERE id = ".$userID);
+		
+			if( $tempBan > time() + ($days * 86400) ) return;
+		}
+		
+		$DB->sql_put("UPDATE wD_Users SET tempBan = ". ( time() + ($days * 86400) )." WHERE id=".$userID);
+	}
 
 	public function rankingDetails()
 	{

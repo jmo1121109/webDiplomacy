@@ -150,6 +150,19 @@ class Members
 
 		return ( isset($this->ByUserID[$User->id]) );
 	}
+	
+	/**
+	 * Checks global $User, sees if he's a member of this game but is temp banned
+	 * from rejoining.
+	 *
+	 * @return boolean
+	 */
+	function isTempBanned()
+	{
+		global $User;
+		
+		return ( $this->isJoined() && $this->ByUserID[$User->id]->status == "Left" && $User->tempBan > time() );
+	}
 
 	function makeUserMember($userID)
 	{

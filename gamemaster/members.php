@@ -596,7 +596,7 @@ class processMembers extends Members
 	function registerNMRs($nmrs) {
 		global $DB;
 	
-		foreach( $this->ByStatus['Playing'] as $Member ){
+		foreach( $this->ByID as $Member ){
 			
 			if( in_array($Member->id, $nmrs) ){
 			
@@ -614,21 +614,138 @@ class processMembers extends Members
 		}
 	}
 	
+	private $activeNMRs = false;
 	/**
-	 * Reduces the excuses of all members with NMRs and set members with no excuses
-	 * as left. 
+	 * Check if any active NMRs (i.e. NMRs by members with status 'playing') 
+	 * were detected during NMR handling.
+	 * 
+	 * @return boolean Returns true, if there is at least one NMR by an active member.
+	 */
+	function withActiveNMRs() {
+		return $this->activeNMRs;
+	}
+	
+	/**
+	 * Handle NMRs and check, if further sanctions due to unexcused NMRs have 
+	 * to be imposed.
 	 */
 	function handleNMRs() {
+		global $DB;
 		
+		/**
+		* Check if there is at least one active NMR and for that case reduce the 
+		* excuses of all active members with NMRs and set members with no excuses
+		* as left.
+		*/
+		$this->activeNMRs = false;
 		foreach( $this->ByStatus['Playing'] as $Member ){
-			
+
 			if( $Member->missedPhases == 0 ) continue; // no NMR
+
+			$this->activeNMRs = true; // there is at least one active NMR
 			
 			if( $Member->excusedMissedTurns > 0 ){
 				$Member->removeExcuse();
 			} else {
 				$Member->setLeft();
 			}
+		}
+		
+		/*
+		 * For all player with status left, that NMRed this turn, the NMR is always
+		 * counted as unexcused. An unexcused turn might impose temp bans as
+		 * further sanctions.
+		 */
+		foreach( $this->ByStatus['Left'] as $Member ) {
+			
+			if( $Member->missedPhases == 0 ) continue; // no NMR
+			
+			/*
+			 * Check if the NMR got an excuse and count the number of unexcused NMRs 
+			 * during the last year for the member to decide what to do.
+			 */
+			list( $systemExcused, $modExcused, $samePeriodExcused ) = 
+					$DB->sql_row("SELECT systemExcused, modExcused, samePeriodExcused
+						FROM wD_missedTurns
+						WHERE gameID = ".$this->Game->id."
+							AND userID = ".$Member->userID."
+						ORDER BY turnDateTime DESC LIMIT 1");
+			
+			list( $yearlyCount ) = $DB->sql_row("SELECT COUNT(1)
+						FROM wD_MissedTurns
+						WHERE userID = ".$Member->userID."
+							AND turnDateTime > ".time()." - (3600 * 24 * 365)
+							AND systemExcused = 0 
+							AND modExcused = 0 
+							AND samePeriodExcused = 0");
+			
+			if( $systemExcused || $modExcused ) continue; // excused miss (though a left member should not be able to get an excused miss unless mod interaction)
+			
+			$memberMsg = l_t("You have missed a deadline and have no excuses left.");
+			
+			/*
+			 * Check, if there was at last one other unexcused NMR during the last 72 hours.
+			 * In this case, this NMR will not be sanctionized.
+			 */
+			if( $samePeriodExcused ){
+				
+				$Member->send('No','No',$memberMsg." ".l_t("Due to other unexcused "
+						. "missed deadlines during the past 72 hours, this "
+						. "will only affect your Reliability Rating."));
+
+			} else {
+				
+				/*
+				 * This NMR might be sanctionized according to the yearly missed
+				 * turn count and the following table:
+				 * 
+				 * misses:
+				 * 
+				 * up to 3: warning
+				 * 4: 1-day temp ban
+				 * 5: 3-day
+				 * 6: 7-day
+				 * 7: 14-day
+				 * 8: 30-days
+				 * 9 or more: infinite (100 years)
+				 */
+				$memberMsg.=" ".l_t("You missed %s ".(($yearlyCount == 1)?"deadline":"deadlines")
+						. " without an excuse during this year.",$yearlyCount);
+				
+				if( $yearlyCount <= 3 ){
+					
+					$Member->send('No','No',$memberMsg." ".l_t("%s more "
+						. ((4-$yearlyCount == 1)?"miss":"misses")
+						. " will impose a temporary ban on you.", 4-$yearlyCount));
+					
+				} elseif( $yearlyCount >= 9){
+					
+					User::tempBanUser($Member->userID, 365 * 100, FALSE);
+					$Member->send('No','No',$memberMsg." ".l_t("Due to your unreliable behaviour "
+							. "you will be infinitely prevented from joining games. "
+							. "Contact the Mods to lift the ban."));
+					
+				} else {
+					
+					$days = 0;
+					switch($yearlyCount){
+						
+						case 4: $days = 1; break;
+						case 5: $days = 3; break;
+						case 6: $days = 7; break;
+						case 7: $days = 14; break;
+						case 8: $days = 30; break;
+					}
+					
+					User::tempBanUser($Member->userID, $days, FALSE);
+					$Member->send('No','No',$memberMsg." ".l_t("You are "
+							. "temporary banned from joining games for %s "
+							. (($days==1)?"day":"days")
+							. ". Be more reliable!", $days));	
+				}
+					
+			}
+			
 		}
 	}
 	
