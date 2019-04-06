@@ -669,7 +669,7 @@ class processMembers extends Members
 						FROM wD_missedTurns
 						WHERE gameID = ".$this->Game->id."
 							AND userID = ".$Member->userID."
-						ORDER BY turnDateTime DESC");
+						ORDER BY turnDateTime DESC LIMIT 1");
 			
 			list( $yearlyCount ) = $DB->sql_row("SELECT COUNT(1)
 						FROM wD_MissedTurns
