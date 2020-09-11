@@ -216,6 +216,21 @@ class GameState {
      * @var array
      */
     public $occupiedFrom = array();
+	/**
+	 * List of votes cast comma separated
+	 * @var string
+	 */
+	public $votes = '';
+	/**
+	 * Statys of countries orders
+	 * @var string
+	 */
+	public $orderStatus = '';
+	/**
+	 * Status of country
+	 * @var string
+	 */
+	public $status = '';
 
 	/**
 	 * Load the GameState object.
@@ -233,6 +248,11 @@ class GameState {
 		$this->turn = intval($gameRow['turn']);
 		$this->phase = $gameRow['phase'];
 		$this->gameOver = $gameRow['gameOver'];
+
+		$memberData = $DB->sql_hash("SELECT countryID, votes, orderStatus, status FROM wD_Members WHERE gameID = ".$this->gameID." AND countryID = ".$this->countryID);
+		$this->votes = $memberData['votes'];
+		$this->orderStatus = $memberData['orderStatus'];
+		$this->status = $memberData['status'];
 
 		$units = array();
 		$orders = array();
